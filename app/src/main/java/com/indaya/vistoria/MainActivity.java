@@ -49,7 +49,12 @@ public class MainActivity extends Activity {
     s.setAllowFileAccess(true);
     s.setAllowContentAccess(true);
     webView.addJavascriptInterface(new AndroidBridge(),"Android");
-    webView.setWebViewClient(new WebViewClient());
+    webView.setWebViewClient(new WebViewClient(){
+      @Override public void onPageFinished(WebView view,String url){
+        super.onPageFinished(view,url);
+        try{ view.evaluateJavascript(readAsset("cloud.js"),null); }catch(IOException ignored){}
+      }
+    });
     webView.setWebChromeClient(new WebChromeClient(){
       @Override public boolean onShowFileChooser(WebView view,ValueCallback<Uri[]> cb,FileChooserParams params){
         if(fileCallback!=null) fileCallback.onReceiveValue(null);
