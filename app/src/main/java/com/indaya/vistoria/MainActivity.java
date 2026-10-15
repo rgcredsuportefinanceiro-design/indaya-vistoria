@@ -48,6 +48,8 @@ public class MainActivity extends Activity {
     s.setDatabaseEnabled(true);
     s.setAllowFileAccess(true);
     s.setAllowContentAccess(true);
+    s.setAllowFileAccessFromFileURLs(true);
+    s.setAllowUniversalAccessFromFileURLs(true);
     webView.addJavascriptInterface(new AndroidBridge(),"Android");
     webView.setWebViewClient(new WebViewClient(){
       @Override public void onPageFinished(WebView view,String url){
