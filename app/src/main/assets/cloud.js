@@ -22,26 +22,31 @@ window.shareInspectionPdf=function(id){
   try{
     let i=db.inspections.find(function(x){return x.id===id});
     let v=db.vehicles.find(function(x){return x.id===i.vehicleId});
+    let rental=[...db.rentals].reverse().find(function(r){return r.vehicleId===i.vehicleId});
+    let client=rental?db.clients.find(function(x){return x.id===rental.clientId}):null;
     let plate=(v&&v.plate)||'veiculo';
-    inspectionDetail(id);
-    setTimeout(function(){
-      if(window.Android&&Android.sharePdf){
-        let bad=Object.entries(i.checks||{}).filter(function(e){return e[1]!=='OK'}).map(function(e){return e[0]+': '+e[1]}).join('\n');
-        let txt='INDAYÁ LOCAÇÕES\nRELATÓRIO DE VISTORIA\n\n'
-          +'Placa: '+plate+'\n'
-          +'Veículo: '+((v&&v.brand)||'')+' '+((v&&v.model)||'')+'\n'
-          +'Data: '+dbr(i.date)+'\n'
-          +'KM: '+(i.km||'-')+'\n'
-          +'Combustível: '+(i.fuel||'-')+'\n'
-          +'Status: '+(i.status||'-')+'\n\n'
-          +'CHECKLIST\n'
-          +Object.entries(i.checks||{}).map(function(e){return e[0]+': '+e[1]}).join('\n')
-          +'\n\nOBSERVAÇÕES\n'+(i.obs||'Sem observações')
-          +'\n\nITENS DE ATENÇÃO\n'+(bad||'Nenhum');
-        Android.sharePdf('vistoria-'+plate+'.pdf',txt);
-      }
-      else if(window.Android&&Android.printPage) Android.printPage();
-    },250);
+    let bad=Object.entries(i.checks||{}).filter(function(e){return e[1]!=='OK'}).map(function(e){return e[0]+': '+e[1]}).join('\n');
+    let payload={
+      tipo:'Vistoria semanal',
+      placa:plate,
+      veiculo:((v&&v.brand)||'')+' '+((v&&v.model)||''),
+      ano:(v&&v.year)||'-',
+      cor:(v&&v.color)||'-',
+      data:dbr(i.date),
+      km:i.km||'-',
+      combustivel:i.fuel||'-',
+      status:i.status||'-',
+      responsavel:email||'Equipe Indayá',
+      cliente:client?{nome:client.name||'-',cpf:client.cpf||'-',telefone:client.phone||'-',cnh:client.cnh||'-'}:{},
+      checks:i.checks||{},
+      observacoes:i.obs||'Sem observações',
+      atencao:bad||'Nenhum',
+      assinatura:i.signature||'',
+      photos:i.photos||[],
+      photoLabels:['Frente','Traseira','Lateral esquerda','Lateral direita','Painel / KM','Interior']
+    };
+    if(window.Android&&Android.sharePdf) Android.sharePdf('vistoria-'+plate+'.pdf',JSON.stringify(payload));
+    else if(window.Android&&Android.printPage) Android.printPage();
   }catch(e){ alert('Não foi possível gerar o PDF desta vistoria.'); }
 };
 
