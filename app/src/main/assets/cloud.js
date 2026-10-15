@@ -71,3 +71,29 @@ window.shareInspectionPdf=function(id){
     window.inspectionDetail=wrapped;
   }
 })();
+
+
+/* Laudo Pro: garante que o botão antigo "Compartilhar" também gere o PDF completo */
+window.shareInspection=function(id){ return window.shareInspectionPdf(id); };
+
+(function(){
+  let oldDetail=window.inspectionDetail;
+  if(typeof oldDetail==='function'&&!oldDetail.__laudoPro){
+    let pro=function(id){
+      oldDetail(id);
+      setTimeout(function(){
+        let actions=document.querySelector('#modal .actions');
+        if(!actions)return;
+        let buttons=actions.querySelectorAll('button');
+        if(buttons[0]){buttons[0].textContent='Compartilhar PDF no WhatsApp';buttons[0].className='btn success';buttons[0].onclick=function(){window.shareInspectionPdf(id)};}
+        if(buttons[1]){buttons[1].textContent='Gerar PDF completo';buttons[1].onclick=function(){window.shareInspectionPdf(id)};}
+        let badge=document.createElement('div');
+        badge.style.cssText='margin-top:10px;padding:9px 11px;border-radius:10px;background:#e8f1ff;color:#174f93;font-size:12px;font-weight:800';
+        badge.textContent='Laudo Pro Indayá: inclui identidade visual, checklist, assinatura e fotos salvas na vistoria.';
+        if(!document.getElementById('laudoProBadge')){badge.id='laudoProBadge';actions.parentElement.insertBefore(badge,actions);}
+      },80);
+    };
+    pro.__laudoPro=true;
+    window.inspectionDetail=pro;
+  }
+})();
