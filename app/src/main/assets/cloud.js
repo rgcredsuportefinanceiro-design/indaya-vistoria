@@ -11,9 +11,83 @@ async function api(path,opt,retry){opt=opt||{};if(retry===undefined)retry=true;l
 function chips(){let row=document.querySelector('.toprow');if(!row||document.getElementById('syncChip'))return;let b=row.querySelector('.brand');if(!b)return;let s=document.createElement('span');s.id='syncChip';s.className='syncChip';s.textContent='☁ conectando';b.appendChild(s);let rr=document.createElement('span');rr.id='roleChip';rr.className='roleChip';b.appendChild(rr)}
 function syncText(t){let e=document.getElementById('syncChip');if(e)e.textContent=t}
 async function loadRole(){let r=await api('/rest/v1/app_users?select=role,active&email=eq.'+encodeURIComponent(email));if(!r.ok)return false;let a=await r.json();if(!a.length||!a[0].active)return false;role=a[0].role||'vistoriador';let e=document.getElementById('roleChip');if(e)e.textContent=role==='admin'?'ADMIN':'VISTORIADOR';if(role!=='admin'){let st=document.querySelector('.iconbtn');if(st)st.style.display='none';window.openSettings=function(){alert('Apenas o administrador pode acessar as configurações.')}}return true}
-async function pull(force){if(syncing)return;syncing=true;syncText('☁ sincronizando');try{let r=await api('/rest/v1/shared_state?id=eq.main&select=state,updated_at,updated_by');if(!r.ok)throw 0;let a=await r.json(),row=a[0];if(row&&row.state&&Object.keys(row.state).length){if(force||row.updated_at!==lastRemote){db=row.state;if(!db.settings)db.settings={pin:'1234',company:'Indayá Locações'};if(!db.rentals)db.rentals=[];if(!db.maintenance)db.maintenance=[];localStorage.setItem(KEY,JSON.stringify(db));lastRemote=row.updated_at||'';if(typeof render==='function')render()}}else await push(true);syncText('☁ online')}catch(e){syncText('☁ offline')}syncing=false}
-async function push(immediate){if(!token)return;if(!immediate){clearTimeout(pushTimer);pushTimer=setTimeout(function(){push(true)},900);return}if(syncing)return;syncing=true;syncText('☁ enviando');try{let r=await api('/rest/v1/shared_state?id=eq.main',{method:'PATCH',headers:{Prefer:'return=representation'},body:JSON.stringify({state:db,updated_at:new Date().toISOString(),updated_by:email})});if(!r.ok)throw 0;let a=await r.json();if(a[0])lastRemote=a[0].updated_at||lastRemote;syncText('☁ salvo')}catch(e){syncText('☁ erro')}syncing=false}
-async function start(){chips();sessionStorage.setItem('indaya_auth','1');document.getElementById('login')?.classList.add('hidden');if(!await loadRole()){logout('Acesso não autorizado.');return}let old=window.save;if(old&&!old.__cloud){let w=function(){old();push(false)};w.__cloud=true;window.save=w}await pull(true);setInterval(function(){pull(false)},12000)}
+function mergeById(remote,local){
+  let m=new Map();
+  (remote||[]).forEach(function(x){if(x&&x.id)m.set(x.id,x)});
+  (local||[]).forEach(function(x){if(x&&x.id)m.set(x.id,Object.assign({},m.get(x.id)||{},x))});
+  return Array.from(m.values());
+}
+function mergeState(remote,local,localWins){
+  remote=remote||{};local=local||{};
+  let out=Object.assign({},remote,localWins?local:{},!localWins?remote:{});
+  ['vehicles','clients','inspections','rentals','maintenance'].forEach(function(k){
+    out[k]=localWins?mergeById(remote[k],local[k]):mergeById(local[k],remote[k]);
+  });
+  out.settings=Object.assign({},remote.settings||{},local.settings||{});
+  return out;
+}
+async function pull(force){
+  if(syncing)return;
+  syncing=true;syncText('☁ sincronizando');
+  try{
+    let r=await api('/rest/v1/shared_state?id=eq.main&select=state,updated_at,updated_by');
+    if(!r.ok)throw 0;
+    let a=await r.json(),row=a[0];
+    if(row&&row.state&&Object.keys(row.state).length){
+      if(force||row.updated_at!==lastRemote){
+        db=mergeState(db,row.state,false);
+        if(!db.settings)db.settings={pin:'1234',company:'Indayá Locações'};
+        if(!db.rentals)db.rentals=[];
+        if(!db.maintenance)db.maintenance=[];
+        localStorage.setItem(KEY,JSON.stringify(db));
+        lastRemote=row.updated_at||'';
+        if(typeof render==='function')render();
+      }
+    }else await push(true);
+    syncText('☁ online');
+  }catch(e){syncText('☁ offline')}
+  syncing=false;
+}
+async function push(immediate){
+  if(!token)return;
+  if(!immediate){clearTimeout(pushTimer);pushTimer=setTimeout(function(){push(true)},900);return}
+  if(syncing)return;
+  syncing=true;syncText('☁ enviando');
+  try{
+    let gr=await api('/rest/v1/shared_state?id=eq.main&select=state,updated_at');
+    if(!gr.ok)throw 0;
+    let ga=await gr.json(),remote=(ga[0]&&ga[0].state)||{};
+    db=mergeState(remote,db,true);
+    localStorage.setItem(KEY,JSON.stringify(db));
+    let r=await api('/rest/v1/shared_state?id=eq.main',{
+      method:'PATCH',
+      headers:{Prefer:'return=representation'},
+      body:JSON.stringify({state:db,updated_at:new Date().toISOString(),updated_by:email})
+    });
+    if(!r.ok)throw 0;
+    let a=await r.json();if(a[0])lastRemote=a[0].updated_at||lastRemote;
+    syncText('☁ salvo');
+  }catch(e){syncText('☁ erro')}
+  syncing=false;
+}
+
+function ensureRecoveredRecords(){
+  db.vehicles=db.vehicles||[];db.inspections=db.inspections||[];
+  function vehicleByPlate(p){return db.vehicles.find(function(v){return String(v.plate||'').toUpperCase()===p})}
+  function addVehicle(v){let found=vehicleByPlate(v.plate);if(found)return found;db.vehicles.push(v);return v}
+  let etios=addVehicle({id:'recovery_ivn4i66',plate:'IVN4I66',brand:'Toyota',model:'Etios',year:'',color:'',km:'',status:'Disponível',obs:'Registro recuperado do laudo de vistoria de 15/10/2026.'});
+  let honda=addVehicle({id:'recovery_uqx4j10',plate:'UQX4J10',brand:'Honda',model:'Start',year:'160',color:'Vermelho',km:'5577',status:'Disponível',obs:'Registro recuperado do laudo de vistoria de 15/10/2026.'});
+  let fiesta=addVehicle({id:'recovery_ewq0i58',plate:'EWQ0I58',brand:'Ford',model:'Fiesta sedan',year:'',color:'Preto',km:'',status:'Disponível',obs:'Registro recuperado do laudo de vistoria de 15/10/2026.'});
+  function addInspection(rec){
+    if(db.inspections.some(function(i){return i.id===rec.id || (i.vehicleId===rec.vehicleId&&i.date===rec.date)}))return;
+    db.inspections.push(rec);
+  }
+  addInspection({id:'recovery_insp_ivn4i66_20261015',vehicleId:etios.id,date:'2026-10-15T13:01',km:'',fuel:'Reserva',status:'Aprovado',obs:'O óleo estava um pouco baixo',checks:{'Pneus':'OK','Óleo do motor':'Atenção','Água / Aditivo':'OK','Luzes e faróis':'OK','Limpadores':'OK','Vidros e retrovisores':'OK','Lataria':'OK','Interior e limpeza':'OK','Documentos':'OK','Estepe / Macaco / Chave de roda':'OK'},photos:[],signature:'',recoveredFromPdf:true});
+  addInspection({id:'recovery_insp_uqx4j10_20261015',vehicleId:honda.id,date:'2026-10-15T13:04',km:'5577',fuel:'Reserva',status:'Aprovado',obs:'',checks:{'Pneus':'OK','Óleo do motor':'OK','Água / Aditivo':'OK','Luzes e faróis':'OK','Limpadores':'OK','Vidros e retrovisores':'OK','Lataria':'OK','Interior e limpeza':'OK','Documentos':'OK','Estepe / Macaco / Chave de roda':'OK'},photos:[],signature:'',recoveredFromPdf:true});
+  addInspection({id:'recovery_insp_ewq0i58_20261015',vehicleId:fiesta.id,date:'2026-10-15T13:10',km:'',fuel:'Reserva',status:'Aprovado',obs:'Motorista relata que está falhando e bebendo muito',checks:{'Pneus':'OK','Óleo do motor':'Atenção','Água / Aditivo':'Atenção','Luzes e faróis':'OK','Limpadores':'OK','Vidros e retrovisores':'OK','Lataria':'Atenção','Interior e limpeza':'Atenção','Documentos':'OK','Estepe / Macaco / Chave de roda':'OK'},photos:[],signature:'',recoveredFromPdf:true});
+  localStorage.setItem(KEY,JSON.stringify(db));
+}
+async function start(){chips();sessionStorage.setItem('indaya_auth','1');document.getElementById('login')?.classList.add('hidden');if(!await loadRole()){logout('Acesso não autorizado.');return}let old=window.save;if(old&&!old.__cloud){let w=function(){old();push(false)};w.__cloud=true;window.save=w}await pull(true);ensureRecoveredRecords();if(typeof render==='function')render();await push(true);setInterval(function(){pull(false)},12000)}
 function logout(m){token='';refresh='';email='';localStorage.removeItem('indaya_cloud_token');localStorage.removeItem('indaya_cloud_refresh');localStorage.removeItem('indaya_cloud_email');showAuth(m||'')}
 window.indayaCloudLogout=function(){logout('')};style();if(token&&email)start().catch(function(){logout('Entre novamente.')});else showAuth('');
 })();
