@@ -25,7 +25,21 @@ window.shareInspectionPdf=function(id){
     let plate=(v&&v.plate)||'veiculo';
     inspectionDetail(id);
     setTimeout(function(){
-      if(window.Android&&Android.sharePdf) Android.sharePdf('vistoria-'+plate+'.pdf');
+      if(window.Android&&Android.sharePdf){
+        let bad=Object.entries(i.checks||{}).filter(function(e){return e[1]!=='OK'}).map(function(e){return e[0]+': '+e[1]}).join('\n');
+        let txt='INDAYÁ LOCAÇÕES\nRELATÓRIO DE VISTORIA\n\n'
+          +'Placa: '+plate+'\n'
+          +'Veículo: '+((v&&v.brand)||'')+' '+((v&&v.model)||'')+'\n'
+          +'Data: '+dbr(i.date)+'\n'
+          +'KM: '+(i.km||'-')+'\n'
+          +'Combustível: '+(i.fuel||'-')+'\n'
+          +'Status: '+(i.status||'-')+'\n\n'
+          +'CHECKLIST\n'
+          +Object.entries(i.checks||{}).map(function(e){return e[0]+': '+e[1]}).join('\n')
+          +'\n\nOBSERVAÇÕES\n'+(i.obs||'Sem observações')
+          +'\n\nITENS DE ATENÇÃO\n'+(bad||'Nenhum');
+        Android.sharePdf('vistoria-'+plate+'.pdf',txt);
+      }
       else if(window.Android&&Android.printPage) Android.printPage();
     },250);
   }catch(e){ alert('Não foi possível gerar o PDF desta vistoria.'); }
