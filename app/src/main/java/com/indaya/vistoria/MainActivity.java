@@ -3,13 +3,17 @@ package com.indaya.vistoria;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.ActivityNotFoundException;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.CancellationSignal;
+import android.os.ParcelFileDescriptor;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
+import android.print.PageRange;
 import android.provider.MediaStore;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
@@ -157,6 +161,69 @@ public class MainActivity extends Activity {
         PrintDocumentAdapter ad=webView.createPrintDocumentAdapter("Indaya_Vistoria");
         pm.print("Indaya_Vistoria",ad,new PrintAttributes.Builder().build());
       });
+    }
+
+    @JavascriptInterface public void sharePdf(String filename){
+      runOnUiThread(()->{
+        try{
+          File dir=new File(getCacheDir(),"pdf"); dir.mkdirs();
+          String safe=(filename==null||filename.trim().isEmpty()) ? "vistoria-indaya.pdf" : filename.replaceAll("[^a-zA-Z0-9._-]","_");
+          if(!safe.toLowerCase().endsWith(".pdf")) safe += ".pdf";
+          File file=new File(dir,safe);
+
+          PrintAttributes attrs=new PrintAttributes.Builder()
+              .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+              .setResolution(new PrintAttributes.Resolution("pdf","pdf",300,300))
+              .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+              .build();
+
+          PrintDocumentAdapter adapter=webView.createPrintDocumentAdapter("Indaya_Vistoria");
+          adapter.onLayout(attrs,attrs,null,new PrintDocumentAdapter.LayoutResultCallback(){
+            @Override public void onLayoutFinished(android.print.PrintDocumentInfo info,boolean changed){
+              try{
+                ParcelFileDescriptor pfd=ParcelFileDescriptor.open(file,
+                    ParcelFileDescriptor.MODE_CREATE|ParcelFileDescriptor.MODE_TRUNCATE|ParcelFileDescriptor.MODE_READ_WRITE);
+                adapter.onWrite(new PageRange[]{PageRange.ALL_PAGES},pfd,new CancellationSignal(),
+                    new PrintDocumentAdapter.WriteResultCallback(){
+                      @Override public void onWriteFinished(PageRange[] pages){
+                        try{pfd.close();}catch(Exception ignored){}
+                        sharePdfFile(file);
+                      }
+                      @Override public void onWriteFailed(CharSequence error){
+                        try{pfd.close();}catch(Exception ignored){}
+                        Toast.makeText(MainActivity.this,"Não foi possível gerar o PDF.",Toast.LENGTH_LONG).show();
+                      }
+                    });
+              }catch(Exception e){
+                Toast.makeText(MainActivity.this,"Erro ao criar PDF.",Toast.LENGTH_LONG).show();
+              }
+            }
+          },null);
+        }catch(Exception e){
+          Toast.makeText(MainActivity.this,"Erro ao compartilhar PDF.",Toast.LENGTH_LONG).show();
+        }
+      });
+    }
+
+    private void sharePdfFile(File file){
+      Uri uri=FileProvider.getUriForFile(MainActivity.this,getPackageName()+".fileprovider",file);
+      Intent send=new Intent(Intent.ACTION_SEND);
+      send.setType("application/pdf");
+      send.putExtra(Intent.EXTRA_STREAM,uri);
+      send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+      try{
+        Intent whats=new Intent(send);
+        whats.setPackage("com.whatsapp");
+        startActivity(whats);
+      }catch(ActivityNotFoundException e){
+        try{
+          Intent business=new Intent(send);
+          business.setPackage("com.whatsapp.w4b");
+          startActivity(business);
+        }catch(ActivityNotFoundException ex){
+          startActivity(Intent.createChooser(send,"Compartilhar relatório em PDF"));
+        }
+      }
     }
   }
 
