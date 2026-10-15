@@ -36,7 +36,7 @@ window.shareInspectionPdf=function(id){
       km:i.km||'-',
       combustivel:i.fuel||'-',
       status:i.status||'-',
-      responsavel:email||'Equipe Indayá',
+      responsavel:localStorage.getItem('indaya_cloud_email')||'Equipe Indayá',
       cliente:client?{nome:client.name||'-',cpf:client.cpf||'-',telefone:client.phone||'-',cnh:client.cnh||'-'}:{},
       checks:i.checks||{},
       observacoes:i.obs||'Sem observações',
