@@ -6,14 +6,14 @@ import android.content.Intent;
 import android.content.ActivityNotFoundException;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.pdf.PdfDocument;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.CancellationSignal;
-import android.os.ParcelFileDescriptor;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
-import android.print.PageRange;
 import android.provider.MediaStore;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
@@ -163,7 +163,7 @@ public class MainActivity extends Activity {
       });
     }
 
-    @JavascriptInterface public void sharePdf(String filename){
+    @JavascriptInterface public void sharePdf(String filename,String content){
       runOnUiThread(()->{
         try{
           File dir=new File(getCacheDir(),"pdf"); dir.mkdirs();
@@ -171,36 +171,49 @@ public class MainActivity extends Activity {
           if(!safe.toLowerCase().endsWith(".pdf")) safe += ".pdf";
           File file=new File(dir,safe);
 
-          PrintAttributes attrs=new PrintAttributes.Builder()
-              .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
-              .setResolution(new PrintAttributes.Resolution("pdf","pdf",300,300))
-              .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
-              .build();
+          PdfDocument pdf=new PdfDocument();
+          Paint paint=new Paint();
+          paint.setAntiAlias(true);
+          paint.setTextSize(12f);
 
-          PrintDocumentAdapter adapter=webView.createPrintDocumentAdapter("Indaya_Vistoria");
-          adapter.onLayout(attrs,attrs,null,new PrintDocumentAdapter.LayoutResultCallback(){
-            @Override public void onLayoutFinished(android.print.PrintDocumentInfo info,boolean changed){
-              try{
-                ParcelFileDescriptor pfd=ParcelFileDescriptor.open(file,
-                    ParcelFileDescriptor.MODE_CREATE|ParcelFileDescriptor.MODE_TRUNCATE|ParcelFileDescriptor.MODE_READ_WRITE);
-                adapter.onWrite(new PageRange[]{PageRange.ALL_PAGES},pfd,new CancellationSignal(),
-                    new PrintDocumentAdapter.WriteResultCallback(){
-                      @Override public void onWriteFinished(PageRange[] pages){
-                        try{pfd.close();}catch(Exception ignored){}
-                        sharePdfFile(file);
-                      }
-                      @Override public void onWriteFailed(CharSequence error){
-                        try{pfd.close();}catch(Exception ignored){}
-                        Toast.makeText(MainActivity.this,"Não foi possível gerar o PDF.",Toast.LENGTH_LONG).show();
-                      }
-                    });
-              }catch(Exception e){
-                Toast.makeText(MainActivity.this,"Erro ao criar PDF.",Toast.LENGTH_LONG).show();
+          int pageWidth=595, pageHeight=842, margin=42, y=55, lineHeight=18;
+          String[] lines=(content==null?"":content).split("\\n");
+          int pageNum=1;
+          PdfDocument.Page page=pdf.startPage(new PdfDocument.PageInfo.Builder(pageWidth,pageHeight,pageNum).create());
+          Canvas canvas=page.getCanvas();
+
+          for(String line:lines){
+            if(y>pageHeight-55){
+              pdf.finishPage(page);
+              pageNum++;
+              page=pdf.startPage(new PdfDocument.PageInfo.Builder(pageWidth,pageHeight,pageNum).create());
+              canvas=page.getCanvas();
+              y=55;
+            }
+            String text=line==null?"":line;
+            while(text.length()>82){
+              int cut=text.lastIndexOf(' ',82);
+              if(cut<20)cut=82;
+              canvas.drawText(text.substring(0,cut),margin,y,paint);
+              y+=lineHeight;
+              text=text.substring(cut).trim();
+              if(y>pageHeight-55){
+                pdf.finishPage(page);
+                pageNum++;
+                page=pdf.startPage(new PdfDocument.PageInfo.Builder(pageWidth,pageHeight,pageNum).create());
+                canvas=page.getCanvas();
+                y=55;
               }
             }
-          },null);
+            canvas.drawText(text,margin,y,paint);
+            y+=lineHeight;
+          }
+          pdf.finishPage(page);
+          try(FileOutputStream out=new FileOutputStream(file)){ pdf.writeTo(out); }
+          pdf.close();
+          sharePdfFile(file);
         }catch(Exception e){
-          Toast.makeText(MainActivity.this,"Erro ao compartilhar PDF.",Toast.LENGTH_LONG).show();
+          Toast.makeText(MainActivity.this,"Não foi possível gerar o PDF.",Toast.LENGTH_LONG).show();
         }
       });
     }
