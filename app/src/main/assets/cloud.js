@@ -17,3 +17,38 @@ async function start(){chips();sessionStorage.setItem('indaya_auth','1');documen
 function logout(m){token='';refresh='';email='';localStorage.removeItem('indaya_cloud_token');localStorage.removeItem('indaya_cloud_refresh');localStorage.removeItem('indaya_cloud_email');showAuth(m||'')}
 window.indayaCloudLogout=function(){logout('')};style();if(token&&email)start().catch(function(){logout('Entre novamente.')});else showAuth('');
 })();
+
+window.shareInspectionPdf=function(id){
+  try{
+    let i=db.inspections.find(function(x){return x.id===id});
+    let v=db.vehicles.find(function(x){return x.id===i.vehicleId});
+    let plate=(v&&v.plate)||'veiculo';
+    inspectionDetail(id);
+    setTimeout(function(){
+      if(window.Android&&Android.sharePdf) Android.sharePdf('vistoria-'+plate+'.pdf');
+      else if(window.Android&&Android.printPage) Android.printPage();
+    },250);
+  }catch(e){ alert('Não foi possível gerar o PDF desta vistoria.'); }
+};
+
+(function(){
+  let old=window.inspectionDetail;
+  if(typeof old==='function'&&!old.__pdfWrapped){
+    let wrapped=function(id){
+      old(id);
+      setTimeout(function(){
+        let actions=document.querySelector('#modal .actions');
+        if(actions&&!document.getElementById('sharePdfBtn')){
+          let b=document.createElement('button');
+          b.id='sharePdfBtn';
+          b.className='btn success';
+          b.textContent='PDF no WhatsApp';
+          b.onclick=function(){window.shareInspectionPdf(id)};
+          actions.insertBefore(b,actions.firstChild);
+        }
+      },60);
+    };
+    wrapped.__pdfWrapped=true;
+    window.inspectionDetail=wrapped;
+  }
+})();
