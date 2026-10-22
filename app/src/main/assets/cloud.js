@@ -171,3 +171,63 @@ window.shareInspection=function(id){ return window.shareInspectionPdf(id); };
     window.inspectionDetail=pro;
   }
 })();
+
+/* Fotos pós-vistoria */
+window.openInspectionPhotoEditor=function(id){
+  try{
+    let i=db.inspections.find(function(x){return x.id===id});
+    if(!i)return alert('Vistoria não encontrada.');
+    let labels=['Frente','Traseira','Lateral esquerda','Lateral direita','Painel / KM','Interior','Avaria 1','Avaria 2'];
+    let existing=i.photos||[];
+    let html='<div class="note">Você pode anexar as fotos depois de salvar a vistoria. Use a câmera ou escolha imagens da galeria.</div>'
+      +'<div class="section">Fotos da vistoria</div><div class="photos">';
+    labels.forEach(function(label,idx){
+      let src=existing[idx]||'';
+      html+='<label class="photoBox">'+
+        '<span>'+label+'</span>'+
+        (src?'<img src="'+src+'">':'')+
+        '<input id="postPhoto'+idx+'" type="file" accept="image/*" capture="environment" onchange="previewPhoto(this)">'+
+        '</label>';
+    });
+    html+='</div><div class="divider"></div>'+
+      '<button class="btn full success" onclick="saveInspectionPhotos(\''+id+'\')">Salvar fotos</button>';
+    openModal('Adicionar fotos à vistoria',html);
+  }catch(e){alert('Não foi possível abrir as fotos desta vistoria.')}
+};
+
+window.saveInspectionPhotos=async function(id){
+  let i=db.inspections.find(function(x){return x.id===id});
+  if(!i)return alert('Vistoria não encontrada.');
+  let photos=(i.photos||[]).slice();
+  for(let idx=0;idx<8;idx++){
+    let inp=document.getElementById('postPhoto'+idx);
+    let f=inp&&inp.files&&inp.files[0];
+    if(f)photos[idx]=await compressFile(f);
+  }
+  i.photos=photos.filter(function(x){return !!x});
+  save();
+  closeModal();
+  alert('Fotos anexadas e salvas na vistoria.');
+};
+
+(function(){
+  let oldDetail2=window.inspectionDetail;
+  if(typeof oldDetail2==='function'&&!oldDetail2.__postPhotoWrapped){
+    let wrapped2=function(id){
+      oldDetail2(id);
+      setTimeout(function(){
+        let actions=document.querySelector('#modal .actions');
+        if(actions&&!document.getElementById('addPhotosAfterBtn')){
+          let b=document.createElement('button');
+          b.id='addPhotosAfterBtn';
+          b.className='btn outline';
+          b.textContent='Adicionar fotos';
+          b.onclick=function(){window.openInspectionPhotoEditor(id)};
+          actions.insertBefore(b,actions.firstChild);
+        }
+      },80);
+    };
+    wrapped2.__postPhotoWrapped=true;
+    window.inspectionDetail=wrapped2;
+  }
+})();
