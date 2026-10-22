@@ -10,7 +10,7 @@ async function refreshSession(){if(!refresh)return false;try{let r=await fetch(U
 async function api(path,opt,retry){opt=opt||{};if(retry===undefined)retry=true;let r=await fetch(U+path,Object.assign({},opt,{headers:Object.assign({},H(true),opt.headers||{})}));if(r.status===401&&retry&&await refreshSession())return api(path,opt,false);return r}
 function chips(){let row=document.querySelector('.toprow');if(!row||document.getElementById('syncChip'))return;let b=row.querySelector('.brand');if(!b)return;let s=document.createElement('span');s.id='syncChip';s.className='syncChip';s.textContent='☁ conectando';b.appendChild(s);let rr=document.createElement('span');rr.id='roleChip';rr.className='roleChip';b.appendChild(rr)}
 function syncText(t){let e=document.getElementById('syncChip');if(e)e.textContent=t}
-async function loadRole(){let r=await api('/rest/v1/app_users?select=role,active&email=eq.'+encodeURIComponent(email));if(!r.ok)return false;let a=await r.json();if(!a.length||!a[0].active)return false;role=a[0].role||'vistoriador';let e=document.getElementById('roleChip');if(e)e.textContent=role==='admin'?'ADMIN':'VISTORIADOR';if(role!=='admin'){let st=document.querySelector('.iconbtn');if(st)st.style.display='none';window.openSettings=function(){alert('Apenas o administrador pode acessar as configurações.')}}return true}
+async function loadRole(){let r=await api('/rest/v1/app_users?select=role,active&email=eq.'+encodeURIComponent(email));if(!r.ok)return false;let a=await r.json();if(!a.length||!a[0].active)return false;role=a[0].role||'vistoriador';window.indayaRole=role;window.indayaUserEmail=email;let e=document.getElementById('roleChip');if(e)e.textContent=role==='admin'?'ADMIN':'VISTORIADOR';if(role!=='admin'){let st=document.querySelector('.iconbtn');if(st)st.style.display='none';window.openSettings=function(){alert('Apenas o administrador pode acessar as configurações.')}}return true}
 function mergeById(remote,local){
   let m=new Map();
   (remote||[]).forEach(function(x){if(x&&x.id)m.set(x.id,x)});
@@ -87,7 +87,7 @@ function ensureRecoveredRecords(){
   addInspection({id:'recovery_insp_ewq0i58_20261015',vehicleId:fiesta.id,date:'2026-10-15T13:10',km:'',fuel:'Reserva',status:'Aprovado',obs:'Motorista relata que está falhando e bebendo muito',checks:{'Pneus':'OK','Óleo do motor':'Atenção','Água / Aditivo':'Atenção','Luzes e faróis':'OK','Limpadores':'OK','Vidros e retrovisores':'OK','Lataria':'Atenção','Interior e limpeza':'Atenção','Documentos':'OK','Estepe / Macaco / Chave de roda':'OK'},photos:[],signature:'',recoveredFromPdf:true});
   localStorage.setItem(KEY,JSON.stringify(db));
 }
-async function start(){chips();sessionStorage.setItem('indaya_auth','1');document.getElementById('login')?.classList.add('hidden');if(!await loadRole()){logout('Acesso não autorizado.');return}let old=window.save;if(old&&!old.__cloud){let w=function(){old();push(false)};w.__cloud=true;window.save=w}await pull(true);ensureRecoveredRecords();if(typeof render==='function')render();await push(true);setInterval(function(){pull(false)},12000)}
+async function start(){chips();sessionStorage.setItem('indaya_auth','1');document.getElementById('login')?.classList.add('hidden');if(!await loadRole()){logout('Acesso não autorizado.');return}let old=window.save;if(old&&!old.__cloud){let w=function(){old();push(false)};w.__cloud=true;window.save=w}await pull(true);ensureRecoveredRecords();initInspectionOwnership();initAdminInbox();if(typeof render==='function')render();await push(true);setInterval(function(){pull(false);if(window.indayaRole==='admin')refreshAdminInboxBadge()},12000)}
 function logout(m){token='';refresh='';email='';localStorage.removeItem('indaya_cloud_token');localStorage.removeItem('indaya_cloud_refresh');localStorage.removeItem('indaya_cloud_email');showAuth(m||'')}
 window.indayaCloudLogout=function(){logout('')};style();if(token&&email)start().catch(function(){logout('Entre novamente.')});else showAuth('');
 })();
@@ -229,5 +229,148 @@ window.saveInspectionPhotos=async function(id){
     };
     wrapped2.__postPhotoWrapped=true;
     window.inspectionDetail=wrapped2;
+  }
+})();
+
+
+/* Identificação do vistoriador e caixa de entrada do ADMIN */
+function initInspectionOwnership(){
+  db.inspections=db.inspections||[];
+  db.inspections.forEach(function(i){
+    if(!i.createdBy && i.recoveredFromPdf){
+      i.createdBy='recuperado-do-pdf';
+      i.createdByRole='recuperado';
+      i.adminSeen=true;
+    }
+  });
+  localStorage.setItem(KEY,JSON.stringify(db));
+
+  if(typeof window.finishWeekly==='function' && !window.finishWeekly.__ownerWrapped){
+    let original=window.finishWeekly;
+    let wrapped=async function(){
+      let before=new Set((db.inspections||[]).map(function(i){return i.id}));
+      let result=await original.apply(this,arguments);
+      (db.inspections||[]).forEach(function(i){
+        if(!before.has(i.id)){
+          i.createdBy=window.indayaUserEmail||localStorage.getItem('indaya_cloud_email')||'vistoriador';
+          i.createdByRole=window.indayaRole||'vistoriador';
+          i.adminSeen=(window.indayaRole==='admin');
+          i.createdAtCloud=new Date().toISOString();
+        }
+      });
+      localStorage.setItem(KEY,JSON.stringify(db));
+      if(typeof push==='function')push(false);
+      return result;
+    };
+    wrapped.__ownerWrapped=true;
+    window.finishWeekly=wrapped;
+  }
+}
+
+function initAdminInbox(){
+  if(window.indayaRole!=='admin')return;
+  let mais=document.getElementById('mais');
+  if(!mais||document.getElementById('adminInboxBtn')){refreshAdminInboxBadge();return;}
+  let list=mais.querySelector('.list');
+  if(!list)return;
+  let b=document.createElement('button');
+  b.id='adminInboxBtn';
+  b.className='btn outline';
+  b.onclick=function(){window.showAdminInspections()};
+  b.innerHTML='📥 Vistorias recebidas <span id="adminInboxCount" class="tag bad" style="float:right">0</span>';
+  list.insertBefore(b,list.firstChild);
+  refreshAdminInboxBadge();
+}
+
+function refreshAdminInboxBadge(){
+  let el=document.getElementById('adminInboxCount');
+  if(!el)return;
+  let n=(db.inspections||[]).filter(function(i){return i.adminSeen===false}).length;
+  el.textContent=String(n);
+  el.style.display=n?'inline-block':'none';
+}
+
+window.showAdminInspections=function(){
+  if(window.indayaRole!=='admin')return alert('Apenas o ADMIN pode acessar esta área.');
+  let list=[...(db.inspections||[])].sort(function(a,b){return new Date(b.date)-new Date(a.date)});
+  let users=[...new Set(list.map(function(i){return i.createdBy||'Não identificado'}))];
+  let html='<div class="card" style="margin-bottom:10px"><b>Central do Administrador</b><div class="sub">Todas as vistorias feitas nos celulares sincronizados aparecem aqui.</div></div>'+
+  '<div class="two"><div class="field"><label>Vistoriador</label><select id="adminFilterUser" onchange="filterAdminInspections()"><option value="">Todos</option>'+
+  users.map(function(u){return '<option>'+esc(u)+'</option>'}).join('')+
+  '</select></div><div class="field"><label>Status</label><select id="adminFilterStatus" onchange="filterAdminInspections()"><option value="">Todos</option><option>Aprovado</option><option>Precisa de atenção</option><option>Não liberar</option></select></div></div>'+
+  '<div id="adminInspectionList" class="list">'+renderAdminInspectionRows(list)+'</div>';
+  openModal('Vistorias recebidas',html);
+  setTimeout(refreshAdminInboxBadge,50);
+};
+
+function renderAdminInspectionRows(list){
+  if(!list.length)return '<div class="empty">Nenhuma vistoria recebida.</div>';
+  return list.map(function(i){
+    let v=db.vehicles.find(function(x){return x.id===i.vehicleId})||{};
+    let who=i.createdBy||'Não identificado';
+    let unseen=i.adminSeen===false;
+    return '<div class="row '+(unseen?'due':'')+'" data-user="'+esc(who)+'" data-status="'+esc(i.status||'')+'">'+
+      '<div class="grow" onclick="inspectionDetail(\''+i.id+'\')">'+
+        '<b>'+esc(v.plate||'Veículo')+' • '+esc(v.brand||'')+' '+esc(v.model||'')+'</b>'+
+        '<small>'+dbr(i.date)+'<br>Vistoriador: '+esc(who)+(i.photos&&i.photos.length?' • '+i.photos.length+' foto(s)':' • sem fotos')+'</small>'+
+      '</div>'+
+      (unseen?'<button class="btn success" style="padding:8px" onclick="markInspectionSeen(\''+i.id+'\')">Conferir</button>':badge(i.status||'Aprovado'))+
+    '</div>';
+  }).join('');
+}
+
+window.filterAdminInspections=function(){
+  let u=document.getElementById('adminFilterUser')?.value||'';
+  let s=document.getElementById('adminFilterStatus')?.value||'';
+  document.querySelectorAll('#adminInspectionList .row').forEach(function(r){
+    r.style.display=(!u||r.dataset.user===u)&&(!s||r.dataset.status===s)?'flex':'none';
+  });
+};
+
+window.markInspectionSeen=function(id){
+  let i=(db.inspections||[]).find(function(x){return x.id===id});
+  if(!i)return;
+  i.adminSeen=true;
+  i.adminSeenAt=new Date().toISOString();
+  i.adminSeenBy=window.indayaUserEmail||localStorage.getItem('indaya_cloud_email')||'admin';
+  save();
+  refreshAdminInboxBadge();
+  window.showAdminInspections();
+};
+
+/* Ao abrir um laudo no ADMIN, mostrar autoria e permitir conferência */
+(function(){
+  let old=window.inspectionDetail;
+  if(typeof old==='function'&&!old.__adminInfoWrapped){
+    let wrapped=function(id){
+      old(id);
+      setTimeout(function(){
+        let i=(db.inspections||[]).find(function(x){return x.id===id});
+        if(!i)return;
+        let report=document.getElementById('report');
+        if(report&&!document.getElementById('inspectorInfo')){
+          let info=document.createElement('div');
+          info.id='inspectorInfo';
+          info.className='note';
+          info.style.marginTop='10px';
+          info.innerHTML='<b>Vistoriador:</b> '+esc(i.createdBy||'Não identificado')+
+            (i.adminSeen?'<br><b>Conferido pelo ADMIN</b>':'');
+          report.appendChild(info);
+        }
+        if(window.indayaRole==='admin' && i.adminSeen===false){
+          let actions=document.querySelector('#modal .actions');
+          if(actions&&!document.getElementById('confirmInspectionBtn')){
+            let b=document.createElement('button');
+            b.id='confirmInspectionBtn';
+            b.className='btn success';
+            b.textContent='Marcar como conferido';
+            b.onclick=function(){markInspectionSeen(id)};
+            actions.insertBefore(b,actions.firstChild);
+          }
+        }
+      },100);
+    };
+    wrapped.__adminInfoWrapped=true;
+    window.inspectionDetail=wrapped;
   }
 })();
